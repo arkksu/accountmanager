@@ -1,6 +1,6 @@
 from sys import argv, exit
 from PyQt5.QtWidgets import *
-from PyQt5.QtGui import QIcon, QFont
+from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 from string import ascii_lowercase, ascii_uppercase, digits
 import random
