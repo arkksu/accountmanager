@@ -40,117 +40,46 @@ class MainWindow(QMainWindow):
         self.genbutton.setGeometry(550, 230, 240, 50)
         self.genbutton.clicked.connect(self.generateEvent)
         self.accountlist.itemClicked.connect(self.openEvent)
-        self.hwid = get_hwid()
-        self.fer = Fernet(base64.b64encode(self.hwid[4:].encode()))
-        if not path.exists(getcwd() + '/src'):
-            mkdir(getcwd() + '/src')
-        self.load()
+        self.fer = Fernet(base64.b64encode(get_hwid()[4:].encode()))
+        self.existed_names = []
+        if path.isfile('accounts.db'):
+            self.con = sqlite3.connect('accounts.db')
+            self.check_db()
+        else:
+            self.createdatabase()
 
-    def load(self):
-        settings = {'launched': False, 'hwid': self.hwid}
+    def check_db(self):
+        f = False
+        cur = self.con.cursor()
         try:
-            settingsfile = open('src/settings.txt', 'r', encoding='utf-8')
-            try:
-                parameters = dict([elem.split(': ') for elem in settingsfile.read().strip().split('\n')])
-                try:
-                    if parameters['launched'].lower() == 'true':
-                        settings['launched'] = True
-                    elif parameters['launched'].lower() == 'false':
-                        settings['launched'] = False
-                    else:
-                        raise WrongParameter
-                except WrongParameter:
-                    msg = QMessageBox()
-                    msg.setIcon(QMessageBox.Critical)
-                    msg.setWindowTitle('Ошибка')
-                    msg.setText('Неверное значение параметра')
-                    msg.setInformativeText('Данный параметр будет перезаписан по умолчанию')
-                    msg.exec()
-                    settings['launched'] = False
-                except KeyError:
-                    msg = QMessageBox()
-                    msg.setIcon(QMessageBox.Critical)
-                    msg.setWindowTitle('Ошибка')
-                    msg.setText('Неверное значение параметра')
-                    msg.setInformativeText('Данный параметр будет перезаписан по умолчанию')
-                    msg.exec()
-                    settings['launched'] = False
-                try:
-                    if parameters['hwid'] != self.hwid:
-                        raise WrongParameter
-                except WrongParameter:
-                    msg = QMessageBox()
-                    msg.setIcon(QMessageBox.Critical)
-                    msg.setWindowTitle('Ошибка')
-                    msg.setText('Ваш уникальный id не совпадает с id базы данных')
-                    msg.setInformativeText('База аккаунтов будет создана заново')
-                    msg.exec()
-                    self.createdatabase()
-                except KeyError:
-                    msg = QMessageBox()
-                    msg.setIcon(QMessageBox.Critical)
-                    msg.setWindowTitle('Ошибка')
-                    msg.setText('Отсутствует параметр hwid')
-                    msg.setInformativeText('База аккаунтов будет создана заново')
-                    msg.exec()
-                    self.createdatabase()
-            except ValueError:
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Critical)
-                msg.setWindowTitle('Ошибка')
-                msg.setText('Настройки повреждены')
-                msg.setInformativeText('Возвращение значений по умолчанию')
-                msg.exec()
-            settingsfile.close()
-            settingsfile = open('src/settings.txt', 'w', encoding='utf-8')
-        except FileNotFoundError:
-            settingsfile = open('src/settings.txt', 'w', encoding='utf-8')
-        try:
-            db_file = open('src/accounts.db')
-            db_file.close()
-            db_flag = False
-        except FileNotFoundError:
-            db_flag = True
-        if settings['launched'] is False or db_flag:
+            if not all(
+                    cur.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{i}'").fetchall() for i in
+                    ('accounts', 'mails', 'logins')):
+                f = True
+            else:
+                self.existed_names = [i[0] for i in cur.execute('SELECT name FROM accounts').fetchall()]
+                for i in self.existed_names:
+                    item = QListWidgetItem()
+                    item.setText(i)
+                    self.accountlist.addItem(item)
+        except sqlite3.OperationalError:
+            f = True
+        if f:
+            self.con.close()
+            if path.isfile('accounts.db.bak'):
+                remove('accounts.db.bak')
+            rename('accounts.db', 'accounts.db.bak')
             msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle('Внимание')
-            msg.setText('Программа на данном ПК запущена в первый раз')
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle('Ошибка')
+            msg.setText('База данных повреждена')
             msg.setInformativeText('База аккаунтов будет создана заново')
             msg.exec()
             self.createdatabase()
-            settings['launched'] = True
-        else:
-            connection = sqlite3.connect('src/accounts.db')
-            cur = connection.cursor()
-            try:
-                names = cur.execute('SELECT name FROM accounts').fetchall()
-                for i in names:
-                    item = QListWidgetItem()
-                    item.setText(i[0])
-                    self.accountlist.addItem(item)
-                connection.close()
-            except sqlite3.OperationalError:
-                connection.close()
-                msg = QMessageBox()
-                msg.setIcon(QMessageBox.Critical)
-                msg.setWindowTitle('Ошибка')
-                msg.setText('База данных повреждена')
-                msg.setInformativeText('База аккаунтов будет создана заново')
-                msg.exec()
-                self.createdatabase()
-        for elem in settings.items():
-            settingsfile.write(f'{elem[0]}: {elem[1]}\n')
-        settingsfile.close()
 
     def createdatabase(self):
-        if path.isfile('src/accounts.db.bak'):
-            remove('src/accounts.db.bak')
-            rename('src/accounts.db', 'src/accounts.db.bak')
-        db_file = open('src/accounts.db', 'w')
-        db_file.close()
-        connection = sqlite3.connect('src/accounts.db')
-        cur = connection.cursor()
+        self.con = sqlite3.connect('accounts.db')
+        cur = self.con.cursor()
         cur.execute('''CREATE TABLE logins (id INTEGER PRIMARY KEY
                             AUTOINCREMENT NOT NULL UNIQUE, name TEXT NOT NULL UNIQUE)''')
         cur.execute('''CREATE TABLE mails (id INTEGER PRIMARY KEY AUTOINCREMENT
@@ -158,7 +87,6 @@ class MainWindow(QMainWindow):
         cur.execute('''CREATE TABLE accounts (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE, login
                             INTEGER REFERENCES logins (id) NOT NULL, mail INTEGER REFERENCES mails (id), password
                             BLOB NOT NULL, name TEXT NOT NULL UNIQUE, maillogin INTEGER NOT NULL)''')
-        connection.close()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Delete:
@@ -184,11 +112,10 @@ class MainWindow(QMainWindow):
             answer = msg.exec()
             if answer == QMessageBox.Yes:
                 delete = self.accountlist.takeItem(curr_index)
-                connection = sqlite3.connect('src/accounts.db')
-                cur = connection.cursor()
+                self.existed_names.pop(curr_index)
+                cur = self.con.cursor()
                 cur.execute(f'''DELETE FROM accounts WHERE name = "{delete.text()}"''')
-                connection.commit()
-                connection.close()
+                self.con.commit()
         else:
             msg = QMessageBox()
             msg.setIcon(QMessageBox.Critical)
@@ -217,8 +144,9 @@ class MainWindow(QMainWindow):
         self.genw.exec()
 
     def closeEvent(self, t):
+        self.con.close()
+        QApplication.clipboard().setText('')
         QApplication.closeAllWindows()
-        self.connection.close()
 
 
 class AddWindow(QDialog):
@@ -259,8 +187,8 @@ class AddWindow(QDialog):
         self.createacc.clicked.connect(self.checkValues)
 
         if password:
-            self.passline.setText(password)
             self.passline.setEnabled(False)
+            self.passline.setText(password)
             self.genpass.hide()
 
     def mlchecked(self, status):
@@ -302,47 +230,32 @@ class AddWindow(QDialog):
             msg.setWindowTitle('Ошибка')
             msg.setText('Введите название')
             msg.exec()
+        elif self.nameline.text() in self.parent.existed_names:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setWindowTitle('Ошибка')
+            msg.setText('Данное название уже используется')
+            msg.exec()
         else:
-            f = True
-            for i in sqlite3.connect('src/accounts.db').cursor().execute('SELECT name FROM accounts').fetchall():
-                if self.nameline.text() == i[0]:
-                    msg = QMessageBox()
-                    msg.setIcon(QMessageBox.Critical)
-                    msg.setWindowTitle('Ошибка')
-                    msg.setText('Данное название уже используется')
-                    msg.exec()
-                    f = False
-                    break
-            if f:
-                if self.maillogin.isChecked():
-                    ml = 1
-                else:
-                    ml = 0
-                connection = sqlite3.connect('src/accounts.db')
-                cur = connection.cursor()
-                try:
-                    cur.execute(f'INSERT INTO logins (name) VALUES ("{self.loginline.text()}")')
-                except sqlite3.IntegrityError:
-                    pass
-                login_id = cur.execute(f'SELECT id FROM logins WHERE name = "{self.loginline.text()}"').fetchone()[0]
-                password = str(self.parent.fer.encrypt(self.passline.text().encode('utf-8')))
-                if self.mailline.text():
-                    try:
-                        cur.execute(f'INSERT INTO mails (name) VALUES ("{self.mailline.text()}")')
-                    except sqlite3.IntegrityError:
-                        pass
-                    mail_id = cur.execute(f'SELECT id FROM mails WHERE name = "{self.mailline.text()}"').fetchone()[0]
-                    cur.execute(f'''INSERT INTO accounts (login, mail, password, name, maillogin) VALUES
-                        ("{login_id}", "{mail_id}", "{password}", "{self.nameline.text()}", {ml})''')
-                else:
-                    cur.execute(f'''INSERT INTO accounts (login, password, name, maillogin) VALUES ("{login_id}",
-                                        "{password}", "{self.nameline.text()}", {ml})''')
-                item = QListWidgetItem()
-                item.setText(self.nameline.text())
-                self.parent.accountlist.addItem(item)
-                connection.commit()
-                connection.close()
-                self.close()
+            if self.maillogin.isChecked():
+                ml = 1
+            else:
+                ml = 0
+            cur = self.parent.con.cursor()
+            cur.execute(f'INSERT OR IGNORE INTO logins (name) VALUES ("{self.loginline.text()}")')
+            login_id = cur.execute(f'SELECT id FROM logins WHERE name = "{self.loginline.text()}"').fetchone()[0]
+            password = self.parent.fer.encrypt(self.passline.text().encode('utf-8'))
+            mail_id = 'NULL'
+            if self.mailline.text():
+                cur.execute(f'INSERT OR IGNORE INTO mails (name) VALUES ("{self.mailline.text()}")')
+                mail_id = cur.execute(f'SELECT id FROM mails WHERE name = "{self.mailline.text()}"').fetchone()[0]
+            cur.execute(f'''INSERT INTO accounts VALUES (NULL, {login_id},
+                {mail_id}, "{password}", "{self.nameline.text()}", {ml})''')
+            item = QListWidgetItem()
+            item.setText(self.nameline.text())
+            self.parent.accountlist.addItem(item)
+            self.parent.con.commit()
+            self.close()
 
     def gen(self):
         self.close()
@@ -489,16 +402,14 @@ class AccountWindow(QDialog):
         self.loadEvent()
 
     def loadEvent(self):
-        connection = sqlite3.connect('src/accounts.db')
-        cur = connection.cursor()
+        cur = self.parent.con
         values = cur.execute(f'''SELECT * FROM accounts WHERE name = "{self.account.text()}"''').fetchone()
         self.id = values[0]
-        self.loginline.setText(cur.execute(f'SELECT name FROM logins WHERE id = "{values[1]}"').fetchall()[0][0])
-        self.passline.setText(str(self.parent.fer.decrypt(values[3][2:-1]))[2:-1])
+        self.loginline.setText(cur.execute(f'SELECT name FROM logins WHERE id = "{values[1]}"').fetchone()[0])
+        self.passline.setText(self.parent.fer.decrypt(values[3][2:-1]).decode('utf-8'))
         if values[2]:
-            self.mailline.setText(cur.execute(f'SELECT name FROM mails WHERE id = "{values[2]}"').fetchall()[0][0])
+            self.mailline.setText(cur.execute(f'SELECT name FROM mails WHERE id = "{values[2]}"').fetchone()[0])
         self.maillogin.setChecked(bool(values[5]))
-        connection.close()
 
     def copyEvent(self):
         if self.sender() == self.logincopy:
@@ -605,30 +516,21 @@ class AccountWindow(QDialog):
             msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
             answer = msg.exec()
             if answer == QMessageBox.Yes:
-                connection = sqlite3.connect('src/accounts.db')
-                cur = connection.cursor()
+                cur = self.parent.con.cursor()
                 if self.maillogin.isChecked():
                     ml = 1
                 else:
                     ml = 0
-                try:
-                    cur.execute(f'INSERT INTO logins (name) VALUES ("{self.loginline.text()}")')
-                except sqlite3.IntegrityError:
-                    pass
+                cur.execute(f'INSERT OR IGNORE INTO logins (name) VALUES ("{self.loginline.text()}")')
                 login_id = cur.execute(f'SELECT id FROM logins WHERE name = "{self.loginline.text()}"').fetchone()[0]
-                password = str(self.parent.fer.encrypt(self.passline.text().encode('utf-8')))
+                password = self.parent.fer.encrypt(self.passline.text().encode('utf-8'))
+                mail_id = 'NULL'
                 if self.mailline.text():
-                    try:
-                        cur.execute(f'INSERT INTO mails (name) VALUES ("{self.mailline.text()}")')
-                    except sqlite3.IntegrityError:
-                        pass
+                    cur.execute(f'INSERT OR IGNORE INTO mails (name) VALUES ("{self.mailline.text()}")')
                     mail_id = cur.execute(f'SELECT id FROM mails WHERE name = "{self.mailline.text()}"').fetchone()[0]
-                    cur.execute(f'''UPDATE accounts SET login = {login_id}, mail = {mail_id},
+                cur.execute(f'''UPDATE accounts SET login = {login_id}, mail = {mail_id},
                     password = "{password}", maillogin = {ml} WHERE id = {self.id}''')
-                cur.execute(f'''UPDATE accounts SET login = {login_id},
-                    password = "{password}", maillogin = {ml} WHERE id = {self.id}''')
-                connection.commit()
-                connection.close()
+                self.parent.con.commit()
                 self.cancelEvent(status=1)
 
 
